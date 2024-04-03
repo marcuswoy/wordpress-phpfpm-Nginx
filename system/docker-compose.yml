@@ -1,0 +1,82 @@
+########################### NETWORKS
+networks:
+  web:
+    external: true
+  database:
+    external: true
+########################### VOLUMES DATABASES
+
+services:
+  # Traefik - Reverse Proxy
+  # docker network create --gateway 192.168.90.1 --subnet 192.168.90.0/24 web
+  # touch $USERDIR/traefik2/acme/acme.json
+  # chmod 600 $USERDIR/traefik2/acme/acme.json
+  # touch $USERDIR/traefik2/traefik.log
+  traefik:
+    container_name: traefik
+    image: docker.io/traefik:latest
+    restart: always
+    networks:
+      - web
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./traefik/rules:/rules:r # file provider directory
+      - ./traefik/certs:/etc/certs:r
+      - ./traefik/security/:/security:r
+      - ./traefik/log:/var/log/docker:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+      - --metrics.prometheus=false
+      - --global.checkNewVersion=false
+      - --global.sendAnonymousUsage=false
+      - --entryPoints.http.address=:80
+      - --entryPoints.https.address=:443
+      - --api=true
+      - --api.dashboard=true
+      - --log=true
+      - --log.level=WARN # (Default: error) DEBUG, INFO, WARN, ERROR, FATAL, PANIC
+      - --accessLog.filePath=/var/log/docker/traefik.log
+      - --accessLog.bufferingSize=100 # Configuring a buffer of 100 lines
+      - --accessLog.filters.statusCodes=400-499
+      - --providers.docker.defaultrule=Host(`{{ index .Labels "com.docker.compose.service" }}.$DOMAINNAME`)
+      - --providers.docker.exposedByDefault=false #: This will force you to use traefik.enable=true label in docker compose to put apps behind traefik.
+      - --providers.docker.network=web
+      - --providers.docker.swarmMode=false
+      - --providers.file.directory=/rules # Load dynamic configuration from one or more .toml or .yml files in a directory.
+      - --providers.file.watch=true # Only works on top level files in the rules folder
+    labels:
+      - "traefik.enable=true"
+      # HTTP-to-HTTPS Redirect
+      - "traefik.http.routers.http-catchall.entrypoints=http"
+      - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      # HTTP Routers
+      - "traefik.http.routers.traefik.entrypoints=https"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.$DOMAINNAME`)"
+      - "traefik.http.routers.traefik.tls=true"
+#      - "traefik.http.routers.traefik.tls.domains[0][0].main=$DOMAINNAME"
+      - "traefik.http.routers.traefik.service=api@internal"
+  logger:
+    container_name: logger
+    mem_reservation: 50M
+    mem_limit: 100M
+    image: docker.io/amir20/dozzle:latest
+    restart: always
+    command:
+      - "--addr=:10002"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      ## HTTP Routers
+      - "traefik.http.routers.logger.entrypoints=https"
+      - "traefik.http.routers.logger.rule=Host(`logger.$DOMAINNAME`)"
+      - "traefik.http.routers.logger.tls=true"
+      ## HTTP Services
+      - "traefik.http.routers.logger.service=logger"
+      - "traefik.http.services.logger.loadbalancer.server.port=10002"

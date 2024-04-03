@@ -1,0 +1,4 @@
+[[tls.certificates]]
+  certFile = "/etc/certs/example.com.cert"
+  keyFile = "/etc/certs/example.com.key"
+  stores = ["default"]

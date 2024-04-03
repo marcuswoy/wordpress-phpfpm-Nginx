@@ -1,0 +1,79 @@
+########################### NETWORKS
+networks:
+  web:
+    external: true
+  intern:
+    internal: true
+########################### VOLUMES DATABASES
+
+services:
+  php:
+    user: $PUID:$PGID # allows upgrading WP and plugins
+    mem_reservation: 500M #stellt sicher, dass der Container mindestens 500 MB Speicher zur Verfügung hat.
+    mem_limit: 1000M #begrenzt den maximalen Speicher, den der Container nutzen kann
+    build:
+      context: ./prod/system/php
+      dockerfile: Dockerfile
+    networks:
+      - intern
+    volumes:
+      - ./prod/data:/var/www/html:rw,z
+      - ./prod/system/php/config:/usr/local/etc/php:rw,Z
+# Nginx - Web Server
+  nginx:
+    mem_reservation: 500M #stellt sicher, dass der Container mindestens 500 MB Speicher zur Verfügung hat.
+    mem_limit: 1000M #begrenzt den maximalen Speicher, den der Container nutzen kann
+    image: docker.io/nginx:latest
+    depends_on:
+      - php
+    networks:
+      - intern
+      - web
+    volumes:
+      - ./prod/data:/var/www/html:ro,z
+      - ./prod/cache:/var/run/nginx-cache:rw,Z
+      - ./prod/system/nginx:/etc/nginx:rw,Z
+    labels:
+      - "traefik.enable=true"
+      ## HTTP to HTTPS redirection
+      - "traefik.http.routers.example-com-http.entrypoints=http"
+      - "traefik.http.routers.example-com-http.rule=Host(`$DOMAINNAME`)"
+      - "traefik.http.routers.example-com-http.middlewares=example-com-https-redirect"
+      - "traefik.http.middlewares.example-com-https-redirect.redirectscheme.scheme=https"
+      ## HTTPS Routers
+      - "traefik.http.routers.example-com.entrypoints=https"
+      - "traefik.http.routers.example-com.rule=Host(`$DOMAINNAME`)"
+      - "traefik.http.routers.example-com.tls=true"
+      ## HTTP Services
+      - "traefik.http.routers.example-com.service=example-com"
+      - "traefik.http.services.example-com.loadbalancer.server.port=80"
+  mariadb:
+    user: $PUID:$PGID # allows upgrading WP and pluginss
+    mem_reservation: 500M #stellt sicher, dass der Container mindestens 500 MB Speicher zur Verfügung hat.
+    mem_limit: 1000M #begrenzt den maximalen Speicher, den der Container nutzen kann
+    image: mariadb:latest
+    restart: always
+    hostname: mariadb
+    networks:
+      - intern
+    volumes:
+      - ./prod/system/database:/var/lib/mysql:rw,Z
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+      - MYSQL_ALLOW_EMPTY_PASSWORD="no"
+      - TZ=${TZ}
+  adminer:
+    image: adminer:latest
+    restart: always
+    networks:
+      - intern
+      - web
+    labels:
+      - "traefik.enable=true"
+      ## HTTP Routers
+      - "traefik.http.routers.adminer.entrypoints=https"
+      - "traefik.http.routers.adminer.rule=Host(`adminer.$DOMAINNAME`)"
+      - "traefik.http.routers.adminer.tls=true"
+      ## HTTP Services
+      - "traefik.http.routers.adminer.service=adminer"
+      - "traefik.http.services.adminer.loadbalancer.server.port=8080"
